@@ -12,6 +12,7 @@
 (require
  require-typed-check
  "ocm-struct-adapted.rkt"
+ "penalty-struct-adapted.rkt"
  (only-in racket/list argmin)
  (only-in racket/sequence sequence->list)
  (only-in racket/vector vector-drop vector-append)
@@ -96,10 +97,13 @@
 (define minima-idx-key 'row-idx)
 (define minima-payload-key 'entry)
 
-(define-type Make-Minimum-Input (Pair Any Index-Type))
-(: make-minimum (Make-Minimum-Input -> (HashTable Any Any)))
+(define-type Table (Mutable-HashTable (U Index-Type Symbol) (U Any Index-Type String Table)))
+
+(define-type Make-Minimum-Input (Pair Entry-Type Index-Type))
+(: make-minimum (Make-Minimum-Input -> Table))
 (define (make-minimum value-rowidx-pair)
-  (define ht ((inst make-hash Any Any)))
+  (define ht : Table (make-hash))
+  (printf "(car value-rowidx-pair) ~s\n" (car value-rowidx-pair))
   (! ht minima-payload-key (car value-rowidx-pair))
   (! ht minima-idx-key (cdr value-rowidx-pair))
   ht)
@@ -110,7 +114,7 @@
 (define-syntax-rule (vector-last v)
   (vector-ref v (sub1 (vector-length v))))
 
-(: interpolate-proc ((HashTable Any Any) (Vectorof Index-Type) (Vectorof Index-Type) Matrix-Proc-Type Entry->Value-Type -> (HashTable Any Any)))
+(: interpolate-proc (Table (Vectorof Index-Type) (Vectorof Index-Type) Matrix-Proc-Type Entry->Value-Type -> Table))
 (define (interpolate-proc minima row-indices col-indices matrix-proc entry->value)
   (define idx-of-last-col (sub1 (vector-length col-indices)))
   (define (smallest-value-entry [col : Index-Type] [idx-of-last-row : Index-Type])
@@ -121,20 +125,20 @@
   (for ([([col : Index-Type] col-idx) (in-indexed col-indices)] #:when (even? col-idx))
     (define idx-of-last-row (cast (if (= col-idx idx-of-last-col)
                                       (vector-last row-indices)
-                                      (hash-ref (cast (hash-ref minima (vector-ref col-indices (add1 col-idx))) HashTableTop) minima-idx-key)) Index-Type))
+                                      (hash-ref (assert (hash-ref minima (vector-ref col-indices (add1 col-idx))) hash?) minima-idx-key)) Index-Type))
     (! minima col (make-minimum (smallest-value-entry col idx-of-last-row))))
   minima)
 
 ;; The return value `minima` is a hash:
 ;; the keys are col-indices (integers)
 ;; the values are pairs of (value row-index).
-(: concave-minima ((Vectorof Index-Type) (Vectorof Index-Type) Matrix-Proc-Type Entry->Value-Type -> (HashTable Any Any)))
+(: concave-minima ((Vectorof Index-Type) (Vectorof Index-Type) Matrix-Proc-Type Entry->Value-Type -> Table))
 (define (concave-minima row-indices col-indices matrix-proc entry->value)
   (define reduce-proc reduce2)
   (if (= 0 (vector-length col-indices))
       (make-hash)
       (let ([row-indices (reduce-proc row-indices col-indices matrix-proc entry->value)])
-        (: odd-column-minima (HashTable Any Any))
+        (: odd-column-minima Table)
         (define odd-column-minima
           (concave-minima row-indices
             ((inst vector-odd-elements Index-Type) col-indices)
@@ -189,8 +193,7 @@
      (define minima (concave-minima rows cols ($ocm-matrix-proc ocm) ($ocm-entry->value ocm)))
 
      (for ([col (in-vector cols)])
-       (define HT
-         (cast (@ minima col) HashTableTop))
+       (define HT (@ minima col))
        (cond
          [(>= col (vector-length ($ocm-min-entrys ocm)))
           (set-$ocm-min-entrys! ocm (vector-append-entry
@@ -199,7 +202,7 @@
                minima-payload-key)))
           (set-$ocm-min-row-indices! ocm
            (vector-append-index ($ocm-min-row-indices ocm)
-             (cast (@ HT minima-idx-key) Index-Type)))]
+             (assert (@ HT minima-idx-key) exact-nonnegative-integer?)))]
          [(< (($ocm-entry->value ocm)
                (@ HT minima-payload-key))
              (($ocm-entry->value ocm) (vector-ref ($ocm-min-entrys ocm) col)))
@@ -210,7 +213,7 @@
           (set-$ocm-min-row-indices! ocm
             ( vector-set
              ($ocm-min-row-indices ocm) col
-               (cast (@ HT minima-idx-key) Index-Type)))]))
+               (cast (@ HT minima-idx-key) Natural)))]))
 
      (set-$ocm-finished! ocm next)]
 

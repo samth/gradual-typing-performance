@@ -9,6 +9,8 @@
   set-$ocm-base!
 )
 
+(require "penalty-struct.rkt")
+
 ;; =============================================================================
 
 (struct $ocm (
@@ -24,7 +26,7 @@
 ;; -----------------------------------------------------------------------------
 
 (define-type Index-Type Nonnegative-Integer)
-(define-type Entry-Type Any)
+(define-type Entry-Type (U Real $penalty))
 (define-type Value-Type Float)
 (define-type No-Value-Type Symbol)
 (define-type Finished-Value-Type Index-Type)
